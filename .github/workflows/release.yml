@@ -1,0 +1,36 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v1.0.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - run: sudo apt-get install -y imagemagick && go install github.com/akavel/rsrc@latest
+      - run: go mod tidy
+      - name: Build three exes
+        run: |
+          mkdir dist
+          for ch in stable beta nightly; do
+            convert assets/$ch.png -define icon:auto-resize=256,64,48,32,16 /tmp/$ch.ico
+            ~/go/bin/rsrc -ico /tmp/$ch.ico -manifest app.manifest -o rsrc.syso
+            name="Brave-$(tr a-z A-Z <<< ${ch:0:1})${ch:1}-Portable.exe"
+            GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.channel=$ch" -o "dist/$name" .
+            rm rsrc.syso
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*.exe
